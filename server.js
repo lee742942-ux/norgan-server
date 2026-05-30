@@ -7,23 +7,32 @@ app.use(cors());
 app.use(express.json());
 
 // MOAT: Hybrid Risk Calculation Rule Engine
+// 🛡️ HARDENED MOAT: Flexible Regex Threat Boundaries
 function evaluateSemanticRisk(payload, violations) {
     let severeRiskScore = 0;
-    const lowerPayload = payload.toLowerCase();
 
-    // Adversarial Prompt Injection Fingerprints (Neural/Semantic Override Rules)
-    const attackVectors = [
-        "ignore previous instructions",
-        "system prompt",
-        "override security",
-        "output raw database",
-        "act as an unrestricted",
-        "sudo mode"
+    // Advanced Regex Patterns to catch variations of system overrides
+    const attackPatterns = [
+        {
+            // Catches "ignore previous", "ignore all previous", "ignore my previous", etc.
+            regex: /ignore\s+(?:all\s+|my\s+|the\s+)?previous\s+instructions/gi,
+            label: "ADVERSARIAL_ATTACK_VECTOR: INSTRUCTION_OVERRIDE_ATTEMPT"
+        },
+        {
+            // Catches "system prompt", "system instructions", "developer prompt"
+            regex: /(?:system|developer|hidden)\s+(?:prompt|instruction|rules)/gi,
+            label: "ADVERSARIAL_ATTACK_VECTOR: SYSTEM_PROMPT_EXFILTRATION"
+        },
+        {
+            // Catches "bypass security", "override security", "disable restrictions"
+            regex: /(?:bypass|override|disable|crack)\s+(?:security|restriction|guardrail|filter)/gi,
+            label: "ADVERSARIAL_ATTACK_VECTOR: SECURITY_BYPASS_ATTEMPT"
+        }
     ];
 
-    attackVectors.forEach(vector => {
-        if (lowerPayload.includes(vector)) {
-            violations.push(`ADVERSARIAL_ATTACK_VECTOR: ${vector.toUpperCase()}`);
+    attackPatterns.forEach(item => {
+        if (item.regex.test(payload)) {
+            violations.push(item.label);
             severeRiskScore += 45;
         }
     });
