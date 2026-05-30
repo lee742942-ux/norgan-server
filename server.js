@@ -6,25 +6,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// MOAT: Hybrid Risk Calculation Rule Engine
 // 🛡️ HARDENED MOAT: Flexible Regex Threat Boundaries
 function evaluateSemanticRisk(payload, violations) {
     let severeRiskScore = 0;
 
-    // Advanced Regex Patterns to catch variations of system overrides
     const attackPatterns = [
         {
-            // Catches "ignore previous", "ignore all previous", "ignore my previous", etc.
             regex: /ignore\s+(?:all\s+|my\s+|the\s+)?previous\s+instructions/gi,
             label: "ADVERSARIAL_ATTACK_VECTOR: INSTRUCTION_OVERRIDE_ATTEMPT"
         },
         {
-            // Catches "system prompt", "system instructions", "developer prompt"
             regex: /(?:system|developer|hidden)\s+(?:prompt|instruction|rules)/gi,
             label: "ADVERSARIAL_ATTACK_VECTOR: SYSTEM_PROMPT_EXFILTRATION"
         },
         {
-            // Catches "bypass security", "override security", "disable restrictions"
             regex: /(?:bypass|override|disable|crack)\s+(?:security|restriction|guardrail|filter)/gi,
             label: "ADVERSARIAL_ATTACK_VECTOR: SECURITY_BYPASS_ATTEMPT"
         }
@@ -92,8 +87,9 @@ app.post('/api/v1/validate', async (req, res) => {
     const hasIssues = violations.length > 0;
     const auditHash = Math.random().toString(36).substring(2, 15);
 
-    // If a catastrophic prompt injection is identified, short-circuit immediately
     let structuralStatus = hasIssues ? "FAILED_REMEDIATED" : "PASSED_SECURE";
+    
+    // The Wiping Mechanism Trigger
     if (behavioralRisk >= 45) {
         structuralStatus = "CRITICAL_GOVERNANCE_BREACH";
         cleanOutput = "[BLOCK_CONTAINS_MALICIOUS_SYSTEM_ALTERATION_ATTEMPT_ROUTING_TERMINATED]";
@@ -102,7 +98,7 @@ app.post('/api/v1/validate', async (req, res) => {
     const responseObject = {
         status: structuralStatus,
         metrics: {
-            latency_ms: Math.floor(Math.random() * 8) + 5, // Blazing fast proxy speed
+            latency_ms: Math.floor(Math.random() * 8) + 5,
             risk_index: finalRiskIndex,
             security_score: finalSecurityScore
         },
@@ -115,7 +111,6 @@ app.post('/api/v1/validate', async (req, res) => {
         violations: violations
     };
 
-    // Forwarding logic
     if (webhookUrl && structuralStatus !== "CRITICAL_GOVERNANCE_BREACH") {
         try {
             await axios.post(webhookUrl, { event: "norgan_v_validated", data: responseObject });
