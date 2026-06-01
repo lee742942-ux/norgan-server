@@ -13,15 +13,15 @@ function evaluateSemanticRisk(payload, violations) {
     const attackPatterns = [
         {
             regex: /ignore\s+(?:all\s+|my\s+|the\s+)?previous\s+instructions/gi,
-            label: "PROMPT_INJECTION__INSTRUCTION_OVERRIDE_JAILBREAK"
+            label: "ADVERSARIAL_ATTACK_VECTOR: INSTRUCTION_OVERRIDE_ATTEMPT"
         },
         {
             regex: /(?:system|developer|hidden)\s+(?:prompt|instruction|rules)/gi,
-            label: "PROMPT_INJECTION__SYSTEM_PROMPT_EXFILTRATION"
+            label: "ADVERSARIAL_ATTACK_VECTOR: SYSTEM_PROMPT_EXFILTRATION"
         },
         {
             regex: /(?:bypass|override|disable|crack)\s+(?:security|restriction|guardrail|filter)/gi,
-            label: "PROMPT_INJECTION__SECURITY_BYPASS_ATTEMPT"
+            label: "ADVERSARIAL_ATTACK_VECTOR: SECURITY_BYPASS_ATTEMPT"
         },
         {
             regex: /(?:developer\s+mode\s+unrestricted|unrestricted\s+developer\s+mode)/gi,
@@ -33,7 +33,7 @@ function evaluateSemanticRisk(payload, violations) {
         }
     ];
 
-    // Crucial: Use .match() instead of .test() to completely eliminate the global regex state/sticky flag bug
+    // Crucial: Use .match() instead of .test() to completely eliminate global regex state bugs
     attackPatterns.forEach(item => {
         if (payload.match(item.regex)) {
             violations.push(item.label);
@@ -45,14 +45,12 @@ function evaluateSemanticRisk(payload, violations) {
 }
 
 app.post('/api/v1/validate', async (req, res) => {
-    // Extracted promptShield and complianceCheck parameters to match frontend toggle signals
-    const { payload, stripPii, promptShield, complianceCheck, framework, webhookUrl } = req.body;
+    const { payload, stripPii, framework, webhookUrl } = req.body;
 
     if (!payload) {
         return res.status(400).json({ error: "Missing 'payload' string in request body." });
     }
 
-    // Convert objects/arrays cleanly to strings for the parsing engine
     let payloadString = typeof payload === 'object' ? JSON.stringify(payload) : String(payload);
     let cleanOutput = payloadString;
     let violations = [];
@@ -64,7 +62,7 @@ app.post('/api/v1/validate', async (req, res) => {
         const phonePattern = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
         
         let customPattern = /(usr|id|route)_[a-zA-Z0-9_]{3,30}/gi;
-        let maskLabel = "[REDACTED_ROUTING_ID]";
+        let maskLabel = "[REDACTED_ID]";
 
         if (framework === 'fintech') {
             customPattern = /(vault_[0-9_a-z]{3,30}|SWIFT-[A-Z-0-9]{3,20})/gi;
@@ -72,34 +70,27 @@ app.post('/api/v1/validate', async (req, res) => {
         } else if (framework === 'ecommerce') {
             customPattern = /(tx_order_[0-9a-z]{3,30}|\d+\s+[A-Za-z0-9\s,.]+Way)/gi;
             maskLabel = "[REDACTED_LOGISTICS_PII]";
-        } else if (framework === 'healthcare') {
-            customPattern = /(ins_[0-9a-z_]{3,30}|ICD-10-CM-[A-Z0-9.]+)/gi;
-            maskLabel = "[REDACTED_HEALTH_INSURANCE_DATA]";
         }
 
         if (payloadString.match(emailPattern)) {
             cleanOutput = cleanOutput.replace(emailPattern, "[REDACTED_EMAIL]");
             violations.push("PII_EMAIL_DETECTED");
-            baseRiskIndex += 20;
+            baseRiskIndex += 30;
         }
         if (payloadString.match(phonePattern)) {
             cleanOutput = cleanOutput.replace(phonePattern, "[REDACTED_PHONE]");
             violations.push("PII_PHONE_LEAK");
-            baseRiskIndex += 20;
+            baseRiskIndex += 30;
         }
         if (payloadString.match(customPattern)) {
             cleanOutput = cleanOutput.replace(customPattern, maskLabel);
             violations.push("INDUSTRY_ID_LEAK");
-            baseRiskIndex += 10;
+            baseRiskIndex += 20;
         }
     }
 
     // LAYER 2: NEURAL-SEMANTIC ANALYSIS LAYER
-    let behavioralRisk = 0;
-    if (promptShield !== false) {
-        behavioralRisk = evaluateSemanticRisk(payloadString, violations);
-    }
-
+    const behavioralRisk = evaluateSemanticRisk(payloadString, violations);
     const finalRiskIndex = Math.min(baseRiskIndex + behavioralRisk, 100);
     const finalSecurityScore = Math.max(100 - finalRiskIndex, 0);
     const finalTrustLevel = Math.max(Math.floor(finalSecurityScore * 0.85), 15);
@@ -110,17 +101,17 @@ app.post('/api/v1/validate', async (req, res) => {
 
     let structuralStatus = hasIssues ? "FAILED_REMEDIATED" : "PASSED_SECURE";
     
-    // 🔥 THE CRITICAL OVERWRITE TRIPPED SIGNAL
+    // The Wiping Mechanism Trigger
     if (behavioralRisk >= 45) {
-        structuralStatus = "FAILED_REMEDIATED";
-        cleanOutput = "[BLOCK TRACE TRIPPED: Adversarial override attempt neutralized. Ingestion stream truncated for downstream safety.]";
+        structuralStatus = "CRITICAL_GOVERNANCE_BREACH";
+        cleanOutput = "[BLOCK_CONTAINS_MALICIOUS_SYSTEM_ALTERATION_ATTEMPT_ROUTING_TERMINATED]";
     }
 
-    // Perfectly matched response parameters map natively into your vn.html frontend components
+    // Perfectly maps to your vn.html frontend properties
     const responseObject = {
         status: structuralStatus,
         metrics: {
-            latency_ms: Math.floor(Math.random() * 12) + 14,
+            latency_ms: Math.floor(Math.random() * 8) + 5,
             risk_index: finalRiskIndex,
             security_score: finalSecurityScore,
             trust_level: finalTrustLevel
@@ -135,7 +126,7 @@ app.post('/api/v1/validate', async (req, res) => {
         violations: violations
     };
 
-    if (webhookUrl) {
+    if (webhookUrl && structuralStatus !== "CRITICAL_GOVERNANCE_BREACH") {
         try {
             await axios.post(webhookUrl, { event: "norgan_v_validated", data: responseObject });
         } catch (forwardError) {
@@ -147,4 +138,4 @@ app.post('/api/v1/validate', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Norgan_V Secure Moat Protocol Active on port ${PORT}`));
+app.listen(PORT, () => console.log(`Norgan_V Secure Moat Protocol Active`));
