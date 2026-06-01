@@ -80,10 +80,10 @@ app.post('/api/v1/validate', async (req, res) => {
         riskTriggered = true;
     }
 
-    // 🧮 LAYER 2: MATHEMATICAL ENTROPY BLOCK (Catches Hex/Base64 obfuscations)
-    // English text is usually low entropy. Random hex tables or base64 streams spike heavily.
+    // 🧮 LAYER 2: PURE MATHEMATICAL ENTROPY BLOCK
+    // Normal english text hovers low. Dense fragments of hexadecimal patterns or Base64 tables break past 5.0.
     const entropyScore = calculateShannonEntropy(payloadString);
-    if (entropyScore > 5.2 && (payloadString.includes('63 61 74') || payloadString.match(/[0-9a-fA-F]{2}\s[0-9a-fA-F]{2}/) || payloadString.includes('Y2F0'))) {
+    if (payloadString.length > 20 && entropyScore > 4.95) {
         violations.push("STATISTICAL_ANOMALY: HIGH_ENTROPY_OBFUSCATED_VECTOR");
         baseRiskIndex += 50;
         riskTriggered = true;
