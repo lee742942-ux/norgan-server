@@ -31,7 +31,7 @@ function evaluateSemanticRisk(payload, violations) {
             regex: /(?:disregard\s+safety\s+protocols|bypass\s+compliance)/gi,
             label: "PROMPT_INJECTION__COMPLIANCE_BYPASS_EXPLOIT"
         }
-    ]
+    ];
 
     // Crucial: Use .match() instead of .test() to completely eliminate the global regex state/sticky flag bug
     attackPatterns.forEach(item => {
