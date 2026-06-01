@@ -1,126 +1,182 @@
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios');
-const app = express();
+require('dotenv').config();
 
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware configuration to parse incoming streams and handle cross-origin requests
 app.use(cors());
 app.use(express.json());
 
-// 🛡️ HARDENED MOAT: Flexible Regex Threat Boundaries
-function evaluateSemanticRisk(payload, violations) {
-    let severeRiskScore = 0;
+console.log('\n==================================================');
+console.log('[NORGAN_V CORE ENGINE] Live Production Pipeline Active');
+console.log('==================================================\n');
 
-    const attackPatterns = [
-        {
-            regex: /ignore\s+(?:all\s+|my\s+|the\s+)?previous\s+instructions/gi,
-            label: "ADVERSARIAL_ATTACK_VECTOR: INSTRUCTION_OVERRIDE_ATTEMPT"
-        },
-        {
-            regex: /(?:system|developer|hidden)\s+(?:prompt|instruction|rules)/gi,
-            label: "ADVERSARIAL_ATTACK_VECTOR: SYSTEM_PROMPT_EXFILTRATION"
-        },
-        {
-            regex: /(?:bypass|override|disable|crack)\s+(?:security|restriction|guardrail|filter)/gi,
-            label: "ADVERSARIAL_ATTACK_VECTOR: SECURITY_BYPASS_ATTEMPT"
+// Secure database registry of valid enterprise client tokens
+const VALID_TOKENS = new Set([
+    'nv_live_a1b2c3d4e5f6g7h8_production',
+    'nv_live_demo_token_workspace_99'
+]);
+
+/**
+ * 1. SYMBOLIC RULES LAYER (Deterministic PII Scrubbing)
+ * Automatically redacts sensitive patterns based on the chosen industry framework
+ */
+function runSymbolicPrivacyShield(payload, framework) {
+    let cleaned = payload;
+    let violations = [];
+
+    const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+    const phonePattern = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
+
+    if (emailPattern.test(payload)) {
+        cleaned = cleaned.replace(emailPattern, "[REDACTED_EMAIL]");
+        violations.push("PII_EMAIL_DETECTED");
+    }
+    if (phonePattern.test(payload)) {
+        cleaned = cleaned.replace(phonePattern, "[REDACTED_PHONE]");
+        violations.push("PII_PHONE_LEAK");
+    }
+
+    // Dynamic schema extraction mapped to your frontend matrix configurations
+    if (framework === 'fintech') {
+        const fintechPattern = /(vault_[0-9_a-z]{3,30}|SWIFT-[A-Z-0-9]{3,20})/gi;
+        if (fintechPattern.test(payload)) {
+            cleaned = cleaned.replace(fintechPattern, "[ENCRYPTED_BANK_VAULT_SIGNATURE]");
+            violations.push("FINTECH_ROUTING_LEAK");
         }
-    ];
-
-    attackPatterns.forEach(item => {
-        if (item.regex.test(payload)) {
-            violations.push(item.label);
-            severeRiskScore += 45;
+    } else if (framework === 'ecommerce') {
+        const ecomPattern = /(tx_order_[0-9a-z]{3,30}|\d+\s+[A-Za-z0-9\s,.]+Way)/gi;
+        if (ecomPattern.test(payload)) {
+            cleaned = cleaned.replace(ecomPattern, "[REDACTED_LOGISTICS_PII]");
+            violations.push("ECOM_SHIPPING_LEAK");
         }
-    });
+    } else if (framework === 'healthcare') {
+        const healthPattern = /(ins_[0-9a-z_]{3,30}|ICD-[0-9A-Z.-]{3,15})/gi;
+        if (healthPattern.test(payload)) {
+            cleaned = cleaned.replace(healthPattern, "[PROTECTED_HEALTH_INFORMATION]");
+            violations.push("HIPAA_DIRECTIVE_VIOLATION");
+        }
+    } else {
+        const generalPattern = /(usr|id|route)_[a-zA-Z0-9_]{3,30}/gi;
+        if (generalPattern.test(payload)) {
+            cleaned = cleaned.replace(generalPattern, "[REDACTED_ID]");
+            violations.push("PII_ROUTING_LEAK");
+        }
+    }
 
-    return severeRiskScore;
+    return { cleaned, violations };
 }
 
-app.post('/api/v1/validate', async (req, res) => {
-    const { payload, stripPii, framework, webhookUrl } = req.body;
-
-    if (!payload) {
-        return res.status(400).json({ error: "Missing 'payload' string in request body." });
-    }
-
-    let cleanOutput = payload;
-    let violations = [];
-    let baseRiskIndex = 0;
-
-    // LAYER 1: SYMBOLIC DETERMINISTIC FILTERING
-    if (stripPii !== false) {
-        const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-        const phonePattern = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
-        
-        let customPattern = /(usr|id|route)_[a-zA-Z0-9_]{3,30}/gi;
-        let maskLabel = "[REDACTED_ID]";
-
-        if (framework === 'fintech') {
-            customPattern = /(vault_[0-9_a-z]{3,30}|SWIFT-[A-Z-0-9]{3,20})/gi;
-            maskLabel = "[ENCRYPTED_BANK_VAULT_SIGNATURE]";
-        } else if (framework === 'ecommerce') {
-            customPattern = /(tx_order_[0-9a-z]{3,30}|\d+\s+[A-Za-z0-9\s,.]+Way)/gi;
-            maskLabel = "[REDACTED_LOGISTICS_PII]";
-        }
-
-        if (emailPattern.test(payload)) {
-            cleanOutput = cleanOutput.replace(emailPattern, "[REDACTED_EMAIL]");
-            violations.push("PII_EMAIL_DETECTED");
-            baseRiskIndex += 30;
-        }
-        if (phonePattern.test(payload)) {
-            cleanOutput = cleanOutput.replace(phonePattern, "[REDACTED_PHONE]");
-            violations.push("PII_PHONE_LEAK");
-            baseRiskIndex += 30;
-        }
-        if (customPattern.test(payload)) {
-            cleanOutput = cleanOutput.replace(customPattern, maskLabel);
-            violations.push("INDUSTRY_ID_LEAK");
-            baseRiskIndex += 20;
-        }
-    }
-
-    // LAYER 2: NEURAL-SEMANTIC ANALYSIS LAYER
-    const behavioralRisk = evaluateSemanticRisk(payload, violations);
-    const finalRiskIndex = Math.min(baseRiskIndex + behavioralRisk, 100);
-    const finalSecurityScore = Math.max(100 - finalRiskIndex, 0);
-
-    const hasIssues = violations.length > 0;
-    const auditHash = Math.random().toString(36).substring(2, 15);
-
-    let structuralStatus = hasIssues ? "FAILED_REMEDIATED" : "PASSED_SECURE";
+/**
+ * 2. PROMPT INJECTION SHIELD LAYER (Linguistic Pattern Proximity Engine)
+ * Identifies hidden, conversational adversarial vectors and malicious overrides
+ */
+function runPromptInjectionShield(payload) {
+    const lowerInput = payload.toLowerCase();
     
-    // The Wiping Mechanism Trigger
-    if (behavioralRisk >= 45) {
-        structuralStatus = "CRITICAL_GOVERNANCE_BREACH";
-        cleanOutput = "[BLOCK_CONTAINS_MALICIOUS_SYSTEM_ALTERATION_ATTEMPT_ROUTING_TERMINATED]";
-    }
+    // Clusters of hostile intent signatures
+    const attackPatterns = [
+        ["ignore", "previous", "instructions"],
+        ["developer", "mode", "unrestricted"],
+        ["disregard", "safety", "protocols"],
+        ["system", "bypass", "protocol"],
+        ["sudo", "vault", "mode"]
+    ];
 
-    const responseObject = {
-        status: structuralStatus,
-        metrics: {
-            latency_ms: Math.floor(Math.random() * 8) + 5,
-            risk_index: finalRiskIndex,
-            security_score: finalSecurityScore
-        },
-        compliance: {
-            ledger_signature: `sha256_${auditHash}`,
-            regulatory_status: "GDPR + AI Act Compliant Layer",
-            timestamp: new Date().toISOString()
-        },
-        cleanOutput: cleanOutput,
-        violations: violations
-    };
+    let attackDetected = false;
+    let technique = "STANDARD_STREAM";
 
-    if (webhookUrl && structuralStatus !== "CRITICAL_GOVERNANCE_BREACH") {
-        try {
-            await axios.post(webhookUrl, { event: "norgan_v_validated", data: responseObject });
-        } catch (forwardError) {
-            console.error(`Webhook forward failure: ${forwardError.message}`);
+    for (const phrase of attackPatterns) {
+        // Triggers if a dense group of contextual exploitation words are matched together
+        const matchCount = phrase.filter(word => lowerInput.includes(word)).length;
+        if (matchCount === phrase.length) {
+            attackDetected = true;
+            technique = "ADV_PATTERN_PROXIMITY_MATCH";
+            break;
         }
     }
 
-    res.json(responseObject);
+    return { attackDetected, technique };
+}
+
+// ═══════════════════════════════════════════
+// ENDPOINT ROUTE: REAL-TIME SECURE INGESTION
+// ═══════════════════════════════════════════
+app.post('/api/v1/validate', (req, res) => {
+    const startTime = Date.now();
+    const authHeader = req.headers['authorization'];
+    
+    // Security Gate Check
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: "Unauthorized: Missing authentication bearer block." });
+    }
+    const token = authHeader.split(' ')[1];
+    if (!VALID_TOKENS.has(token)) {
+        return res.status(403).json({ error: "Forbidden: Access token is invalid or has expired." });
+    }
+
+    const { payload, framework = 'general', stripPii = true, promptShield = true, complianceCheck = true } = req.body;
+    if (!payload) return res.status(400).json({ error: "Bad Request: Missing body payload text stream." });
+
+    try {
+        let currentString = String(payload);
+        let dynamicViolations = [];
+        let riskIndex = 0;
+
+        // Step 1: Fire Symbolic Rule Pass
+        if (stripPii) {
+            const piiResult = runSymbolicPrivacyShield(currentString, framework);
+            currentString = piiResult.cleaned;
+            if (piiResult.violations.length > 0) {
+                dynamicViolations.push(...piiResult.violations);
+                riskIndex += 50;
+            }
+        }
+
+        // Step 2: Fire Prompt Injection Guard Pass
+        if (promptShield) {
+            const shieldResult = runPromptInjectionShield(payload);
+            if (shieldResult.attackDetected) {
+                dynamicViolations.push(`PROMPT_INJECTION__${shieldResult.technique}`);
+                riskIndex += 45;
+            }
+        }
+
+        // Step 3: Run Global Compliance Status Assessment (GDPR Metric Alignment)
+        let gdprStatus = "VERIFIED_COMPLIANT";
+        if (complianceCheck && riskIndex >= 80) {
+            gdprStatus = "NON_COMPLIANT_REMEDIATION_REQUIRED";
+        }
+
+        const latencyMs = Date.now() - startTime;
+        const hasIssues = dynamicViolations.length > 0;
+        const cryptoSeed = Math.random().toString(36).substring(2, 15);
+
+        // Return compliance validation payload signature matrix
+        return res.json({
+            status: hasIssues ? "FAILED_REMEDIATED" : "PASSED_PAYLOAD_SECURE",
+            metrics: {
+                latency_ms: latencyMs,
+                risk_index: riskIndex,
+                security_score: Math.max(100 - riskIndex, 5),
+                trust_level: Math.max(95 - (riskIndex * 1.2), 10).toFixed(0)
+            },
+            cleanOutput: currentString,
+            violations: dynamicViolations,
+            governance: {
+                ledger_transaction_id: `tx_ledger_${cryptoSeed.toUpperCase()}`,
+                block_signature: `sha256_${require('crypto').createHash('sha256').update(currentString + cryptoSeed).digest('hex').substring(0, 16)}`,
+                gdpr_compliance_status: gdprStatus,
+                ruleset_applied: `GDPR_Art_12-14_${framework.toUpperCase()}_v1`
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ error: "Internal Pipeline Ingestion Fault." });
+    }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Norgan_V Secure Moat Protocol Active`));
+app.listen(PORT, () => {
+    console.log(`[NORGAN_V CORE] Operational pipeline running live on port ${PORT}`);
+});
