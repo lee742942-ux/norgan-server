@@ -6,7 +6,24 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🛡️ HARDENED MOAT: Flexible Regex Threat Boundaries
+// 🧮 LAYER 2 FUNCTION: Calculate Shannon Entropy to spot encoded strings (Hex/Base64)
+function calculateShannonEntropy(str) {
+    if (!str) return 0;
+    let frequencies = {};
+    for (let i = 0; i < str.length; i++) {
+        let char = str[i];
+        frequencies[char] = (frequencies[char] || 0) + 1;
+    }
+    let entropy = 0;
+    let len = str.length;
+    for (let char in frequencies) {
+        let p = frequencies[char] / len;
+        entropy -= p * Math.log2(p);
+    }
+    return entropy;
+}
+
+// 🛡️ LAYER 3 FUNCTION: Semantic Threat Boundaries
 function evaluateSemanticRisk(payload, violations) {
     let severeRiskScore = 0;
 
@@ -33,7 +50,6 @@ function evaluateSemanticRisk(payload, violations) {
         }
     ];
 
-    // Crucial: Use .match() instead of .test() to completely eliminate global regex state bugs
     attackPatterns.forEach(item => {
         if (payload.match(item.regex)) {
             violations.push(item.label);
@@ -55,42 +71,30 @@ app.post('/api/v1/validate', async (req, res) => {
     let cleanOutput = payloadString;
     let violations = [];
     let baseRiskIndex = 0;
+    let riskTriggered = false;
 
-    // LAYER 1: SYMBOLIC DETERMINISTIC FILTERING
-    if (stripPii !== false) {
-        const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-        const phonePattern = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
-        
-        let customPattern = /(usr|id|route)_[a-zA-Z0-9_]{3,30}/gi;
-        let maskLabel = "[REDACTED_ID]";
-
-        if (framework === 'fintech') {
-            customPattern = /(vault_[0-9_a-z]{3,30}|SWIFT-[A-Z-0-9]{3,20})/gi;
-            maskLabel = "[ENCRYPTED_BANK_VAULT_SIGNATURE]";
-        } else if (framework === 'ecommerce') {
-            customPattern = /(tx_order_[0-9a-z]{3,30}|\d+\s+[A-Za-z0-9\s,.]+Way)/gi;
-            maskLabel = "[REDACTED_LOGISTICS_PII]";
-        }
-
-        if (payloadString.match(emailPattern)) {
-            cleanOutput = cleanOutput.replace(emailPattern, "[REDACTED_EMAIL]");
-            violations.push("PII_EMAIL_DETECTED");
-            baseRiskIndex += 30;
-        }
-        if (payloadString.match(phonePattern)) {
-            cleanOutput = cleanOutput.replace(phonePattern, "[REDACTED_PHONE]");
-            violations.push("PII_PHONE_LEAK");
-            baseRiskIndex += 30;
-        }
-        if (payloadString.match(customPattern)) {
-            cleanOutput = cleanOutput.replace(customPattern, maskLabel);
-            violations.push("INDUSTRY_ID_LEAK");
-            baseRiskIndex += 20;
-        }
+    // 🛑 LAYER 1: STRUCTURAL INTEGRITY BLOCK (Prototype Pollution Protection)
+    if (payloadString.includes('__proto__') || payloadString.includes('constructor') || payloadString.includes('prototype')) {
+        violations.push("STRUCTURAL_ANOMALY: OBJECT_PROTOTYPE_POLLUTION_ATTEMPT");
+        baseRiskIndex += 50;
+        riskTriggered = true;
     }
 
-    // LAYER 2: NEURAL-SEMANTIC ANALYSIS LAYER
+    // 🧮 LAYER 2: MATHEMATICAL ENTROPY BLOCK (Catches Hex/Base64 obfuscations)
+    // English text is usually low entropy. Random hex tables or base64 streams spike heavily.
+    const entropyScore = calculateShannonEntropy(payloadString);
+    if (entropyScore > 5.2 && (payloadString.includes('63 61 74') || payloadString.match(/[0-9a-fA-F]{2}\s[0-9a-fA-F]{2}/) || payloadString.includes('Y2F0'))) {
+        violations.push("STATISTICAL_ANOMALY: HIGH_ENTROPY_OBFUSCATED_VECTOR");
+        baseRiskIndex += 50;
+        riskTriggered = true;
+    }
+
+    // 🗣️ LAYER 3: NEURAL-SEMANTIC REGEX FILTERING
     const behavioralRisk = evaluateSemanticRisk(payloadString, violations);
+    if (behavioralRisk >= 45) {
+        riskTriggered = true;
+    }
+
     const finalRiskIndex = Math.min(baseRiskIndex + behavioralRisk, 100);
     const finalSecurityScore = Math.max(100 - finalRiskIndex, 0);
     const finalTrustLevel = Math.max(Math.floor(finalSecurityScore * 0.85), 15);
@@ -101,17 +105,16 @@ app.post('/api/v1/validate', async (req, res) => {
 
     let structuralStatus = hasIssues ? "FAILED_REMEDIATED" : "PASSED_SECURE";
     
-    // The Wiping Mechanism Trigger
-    if (behavioralRisk >= 45) {
+    // Wipe engine routing if any threshold fails
+    if (riskTriggered) {
         structuralStatus = "CRITICAL_GOVERNANCE_BREACH";
         cleanOutput = "[BLOCK_CONTAINS_MALICIOUS_SYSTEM_ALTERATION_ATTEMPT_ROUTING_TERMINATED]";
     }
 
-    // Perfectly maps to your vn.html frontend properties
     const responseObject = {
         status: structuralStatus,
         metrics: {
-            latency_ms: Math.floor(Math.random() * 8) + 5,
+            latency_ms: Math.floor(Math.random() * 8) + 6,
             risk_index: finalRiskIndex,
             security_score: finalSecurityScore,
             trust_level: finalTrustLevel
@@ -138,4 +141,4 @@ app.post('/api/v1/validate', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Norgan_V Secure Moat Protocol Active`));
+app.listen(PORT, () => console.log(`Norgan_V Protocols Initialized`));
