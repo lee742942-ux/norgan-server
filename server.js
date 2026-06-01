@@ -73,29 +73,31 @@ app.post('/api/v1/validate', async (req, res) => {
     let baseRiskIndex = 0;
     let riskTriggered = false;
 
+    // ⚡ PREPROCESSING LAYER: Normalize Unicode (Collapses homoglyphs, full-width letters, and lookalikes)
+    // This turns "ｉｇｎｏｒｅ" into "ignore" before any checks run!
+    let normalizedPayload = payloadString.normalize('NFKC');
+
     // 🛑 LAYER 1: STRUCTURAL INTEGRITY BLOCK (Prototype Pollution Protection)
-    if (payloadString.includes('__proto__') || payloadString.includes('constructor') || payloadString.includes('prototype')) {
+    if (normalizedPayload.includes('__proto__') || normalizedPayload.includes('constructor') || normalizedPayload.includes('prototype')) {
         violations.push("STRUCTURAL_ANOMALY: OBJECT_PROTOTYPE_POLLUTION_ATTEMPT");
         baseRiskIndex += 50;
         riskTriggered = true;
     }
 
-    // 🧮 LAYER 2: MULTI-VECTOR STATISTICAL ENGINE (Independent Or Condition)
-    const entropyScore = calculateShannonEntropy(payloadString);
+    // 🧮 LAYER 2: MULTI-VECTOR STATISTICAL ENGINE (Catches Hex & Base64 Obfuscation)
+    const entropyScore = calculateShannonEntropy(normalizedPayload);
     
-    // Scans for explicit 0x prefixes, space-separated hex bytes, or raw dense arrays
     const hexFormatPattern = /(?:0x[0-9a-fA-F]{2})|(?:[0-9a-fA-F]{2}\s+){3,}[0-9a-fA-F]{2}/gi;
-    const base64Indicator = /Y2F0IC/g; // Flags common adversarial decoding signatures directly
+    const base64Indicator = /Y2F0IC/g;
 
-    // Fix: Trigger if pure mathematical entropy is globally wild OR if structural obfuscation signatures match
-    if (entropyScore > 5.4 || hexFormatPattern.test(payloadString) || base64Indicator.test(payloadString)) {
+    if (entropyScore > 5.4 || hexFormatPattern.test(normalizedPayload) || base64Indicator.test(normalizedPayload)) {
         violations.push("STATISTICAL_ANOMALY: HIGH_ENTROPY_OBFUSCATED_VECTOR");
         baseRiskIndex += 50;
         riskTriggered = true;
     }
 
-    // 🗣️ LAYER 3: NEURAL-SEMANTIC REGEX FILTERING
-    const behavioralRisk = evaluateSemanticRisk(payloadString, violations);
+    // 🗣️ LAYER 3: NEURAL-SEMANTIC REGEX FILTERING (Now runs against the fully decoded/normalized payload)
+    const behavioralRisk = evaluateSemanticRisk(normalizedPayload, violations);
     if (behavioralRisk >= 45) {
         riskTriggered = true;
     }
@@ -110,7 +112,6 @@ app.post('/api/v1/validate', async (req, res) => {
 
     let structuralStatus = hasIssues ? "FAILED_REMEDIATED" : "PASSED_SECURE";
     
-    // Wipe engine routing if any layer flags a breakdown
     if (riskTriggered) {
         structuralStatus = "CRITICAL_GOVERNANCE_BREACH";
         cleanOutput = "[BLOCK_CONTAINS_MALICIOUS_SYSTEM_ALTERATION_ATTEMPT_ROUTING_TERMINATED]";
