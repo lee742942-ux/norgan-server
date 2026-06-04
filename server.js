@@ -57,13 +57,13 @@ async function queryNeuralClassifier(text) {
             { 
                 inputs: text,
                 options: { 
-                    wait_for_model: true, // Forces Hugging Face to hold the request open while waking up the model
+                    wait_for_model: true, // Tells Hugging Face to keep the connection open while the model boots up
                     use_cache: false 
                 }
             },
             { 
                 headers: { Authorization: `Bearer ${HF_TOKEN.trim()}` }, 
-                timeout: 60000 // Bump timeout to 60 seconds to fully clear serverless model wakeups
+                timeout: 60000 // Extended to 60 seconds to fully handle serverless cold starts
             }
         );
 
@@ -72,24 +72,15 @@ async function queryNeuralClassifier(text) {
         if (response.data && Array.isArray(response.data) && Array.isArray(response.data[0])) {
             const predictions = response.data[0];
 
-            const safePrediction = predictions.find(p => {
-                const labelStr = String(p.label).toUpperCase();
-                return labelStr === 'SAFE' || labelStr === 'LABEL_0';
-            });
-
             const attackPrediction = predictions.find(p => {
                 const labelStr = String(p.label).toUpperCase();
                 return labelStr === 'INJECTION' || labelStr === 'LABEL_1' || labelStr === 'PROMPT_INJECTION';
             });
 
+            // 🎯 CRITICAL RULE: Only trigger a block if the AI explicitly registers an attack score over 50%
             if (attackPrediction && attackPrediction.score > 0.50) {
                 console.log(`🚨 ATTACK DETECTED BY NEURAL LAYER: Score ${attackPrediction.score}`);
                 return { isInjection: true, confidence: Math.round(attackPrediction.score * 100) };
-            }
-
-            if (safePrediction && safePrediction.score < 0.50) {
-                console.log(`🚨 ANOMALOUS LOW-CONFIDENCE SAFE LABEL: Score ${safePrediction.score}`);
-                return { isInjection: true, confidence: Math.round((1 - safePrediction.score) * 100) };
             }
         }
 
@@ -97,13 +88,9 @@ async function queryNeuralClassifier(text) {
     } catch (error) {
         console.error(`❌ Neural Engine Exception Trace: ${error.message}`);
         
-        // HARDEN LOOPHOLE: If the API times out or throws an error, return true to explicitly flag it on the frontend log
-        return { 
-            isInjection: true, 
-            confidence: 100, 
-            error: true,
-            reason: `GATEWAY_WARNING: NEURAL_API_TIMEOUT_OR_AUTH_FAULT (${error.message})` 
-        };
+        // 🛠️ BALANCE: If the API times out or experiences a cold start delay, 
+        // yield to your local layers so clean user prompts don't get locked out.
+        return { isInjection: false, confidence: 0, isTimeoutFallback: true };
     }
 }
 app.post('/api/v1/validate', async (req, res) => {
