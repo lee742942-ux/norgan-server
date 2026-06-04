@@ -64,23 +64,46 @@ async function queryNeuralClassifier(text) {
             }
         );
 
+        // 📊 Print out the exact object structure to your Render console logs
         console.log("📊 API RAW PAYLOAD:", JSON.stringify(response.data));
 
-        // Flat string search to completely prevent runtime compilation errors
-        const stringifiedResponse = JSON.stringify(response.data).toUpperCase();
+        // Unpack the nested response array safely
+        if (response.data && Array.isArray(response.data) && Array.isArray(response.data[0])) {
+            const predictions = response.data[0];
 
-        if (stringifiedResponse.includes('"LABEL_1"') || stringifiedResponse.includes('"INJECTION"')) {
-            console.log("🚨 TARGET DETECTED INSIDE ML PAYLOAD BLOCK");
-            return { isInjection: true, confidence: 95 };
+            // Find the item that explicitly represents the SAFE baseline
+            const safePrediction = predictions.find(p => {
+                const labelStr = String(p.label).toUpperCase();
+                return labelStr === 'SAFE' || labelStr === 'LABEL_0';
+            });
+
+            // Find the item that explicitly represents the ATTACK payload
+            const attackPrediction = predictions.find(p => {
+                const labelStr = String(p.label).toUpperCase();
+                return labelStr === 'INJECTION' || labelStr === 'LABEL_1' || labelStr === 'PROMPT_INJECTION';
+            });
+
+            // CRITICAL INTELLIGENCE RULE:
+            // If the attack score is higher than 0.50, OR if the safe prediction drops low, slam it shut.
+            if (attackPrediction && attackPrediction.score > 0.50) {
+                console.log(`🚨 ATTACK DETECTED BY NEURAL LAYER: Score ${attackPrediction.score}`);
+                return { isInjection: true, confidence: Math.round(attackPrediction.score * 100) };
+            }
+
+            if (safePrediction && safePrediction.score < 0.50) {
+                console.log(`🚨 ANOMALOUS LOW-CONFIDENCE SAFE LABEL: Score ${safePrediction.score}`);
+                return { isInjection: true, confidence: Math.round((1 - safePrediction.score) * 100) };
+            }
         }
 
         return { isInjection: false, confidence: 0 };
     } catch (error) {
         console.error(`❌ Neural Engine Exception Trace: ${error.message}`);
+        // If the API drops completely, fail safe (let pass) or fail secure (block)?
+        // For testing, let's keep it false so it doesn't lock your interface up.
         return { isInjection: false, confidence: 0 };
     }
 }
-
 app.post('/api/v1/validate', async (req, res) => {
     const { payload, framework, webhookUrl } = req.body;
 
