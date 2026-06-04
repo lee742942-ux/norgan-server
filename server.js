@@ -64,6 +64,37 @@ async function queryNeuralClassifier(text) {
             }
         );
 
+        // 🔍 ENGINE DIAGNOSTIC LOG
+        console.log("📊 API RAW PAYLOAD:", JSON.stringify(response.data));
+
+        if (response.data && Array.isArray(response.data[0])) {
+            const predictions = response.data[0];
+            
+            // Loop through all return elements to find an explicit malicious label match
+            for (let prediction of predictions) {
+                const currentLabel = String(prediction.label).toUpperCase();
+                
+                // Catch every possible deployment configuration variant for an attack flag
+                if (currentLabel === 'INJECTION' || currentLabel === 'LABEL_1' || currentLabel === 'PROMPT_INJECTION') {
+                    console.log(`🚨 TARGET MATCHED: ${currentLabel} with confidence ${prediction.score}`);
+                    
+                    if (prediction.score > 0.50) { // Set to a sharp 50% argmax threshold for enterprise blocking
+                        return { isInjection: true, confidence: Math.round(prediction.score * 100) };
+                    }
+                }
+            }
+        }
+        return { isInjection: false, confidence: 0 };
+    } catch (error) {
+        // 🚨 CRITICAL VISIBILITY: If the API breaks or times out, flip this to TRUE to see the error message!
+        console.error(`❌ Neural Engine Exception Trace: ${error.message}`);
+        
+        // Temporarily set to TRUE to ensure that if the API token fails, it blocks everything rather than passing everything.
+        return { isInjection: true, confidence: 100, error: true };
+    }
+}
+        );
+
         if (response.data && Array.isArray(response.data[0])) {
             const predictions = response.data[0];
             
