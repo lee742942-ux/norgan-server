@@ -56,33 +56,32 @@ async function queryNeuralClassifier(text) {
             modelUrl,
             { 
                 inputs: text,
-                options: { wait_for_model: true }
+                options: { wait_for_model: true } // Keeps connection alive while model loads
             },
             { 
-                headers: { Authorization: `Bearer ${HF_TOKEN}` }, 
-                timeout: 10000 
+                headers: { Authorization: `Bearer ${HF_TOKEN.trim()}` }, // .trim() removes accidental spaces
+                timeout: 30000 // Give it a full 30 seconds for serverless cold-starts
             }
         );
-
-        // 🔍 DEBUG LOG: This will show you exactly what the AI thinks in your Render Logs!
-        console.log("📊 RAW HUGGING FACE RESPONSE DATA:", JSON.stringify(response.data));
 
         if (response.data && Array.isArray(response.data[0])) {
             const predictions = response.data[0];
             
-            // This reads the highest confidence prediction directly regardless of string matching
-            const topPrediction = predictions.reduce((prev, current) => (prev.score > current.score) ? prev : current);
+            // Map directly to ProtectAI's strict numerical outputs
+            const injectionLabel = predictions.find(p => 
+                p.label === 'INJECTION' || 
+                p.label === 'LABEL_1' || 
+                p.label === 'injection'
+            );
             
-            console.log(`🎯 Top Prediction Label: ${topPrediction.label} with score: ${topPrediction.score}`);
-
-            // If the highest-scoring label is anything other than the safe label, treat it as an injection
-            if (topPrediction.label !== 'SAFE' && topPrediction.label !== 'LABEL_0' && topPrediction.score > 0.85) {
-                return { isInjection: true, confidence: Math.round(topPrediction.score * 100) };
+            if (injectionLabel && injectionLabel.score > 0.85) {
+                return { isInjection: true, confidence: Math.round(injectionLabel.score * 100) };
             }
         }
         return { isInjection: false, confidence: 0 };
     } catch (error) {
-        console.error(`Neural pipeline processing issue: ${error.message}`);
+        console.error(`Neural pipeline network/auth issue: ${error.message}`);
+        // Return false so network hiccups don't accidentally block harmless, legit enterprise users
         return { isInjection: false, confidence: 0, error: true };
     }
 }
