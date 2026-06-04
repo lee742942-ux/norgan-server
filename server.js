@@ -50,19 +50,42 @@ async function queryNeuralClassifier(text) {
     }
 
     try {
-        // Industry standard prompt injection classifier
         const modelUrl = "https://api-inference.huggingface.co/models/protectai/deberta-v3-base-prompt-injection";
         
         const response = await axios.post(
             modelUrl,
             { 
                 inputs: text,
-                options: { wait_for_model: true } // Tells Hugging Face to hold connection until container is live
+                options: { wait_for_model: true }
             },
             { 
                 headers: { Authorization: `Bearer ${HF_TOKEN}` }, 
-                timeout: 10000 // Increase timeout to give the serverless engine time to respond
+                timeout: 10000 
             }
+        );
+
+        // 🔍 DEBUG LOG: This will show you exactly what the AI thinks in your Render Logs!
+        console.log("📊 RAW HUGGING FACE RESPONSE DATA:", JSON.stringify(response.data));
+
+        if (response.data && Array.isArray(response.data[0])) {
+            const predictions = response.data[0];
+            
+            // This reads the highest confidence prediction directly regardless of string matching
+            const topPrediction = predictions.reduce((prev, current) => (prev.score > current.score) ? prev : current);
+            
+            console.log(`🎯 Top Prediction Label: ${topPrediction.label} with score: ${topPrediction.score}`);
+
+            // If the highest-scoring label is anything other than the safe label, treat it as an injection
+            if (topPrediction.label !== 'SAFE' && topPrediction.label !== 'LABEL_0' && topPrediction.score > 0.85) {
+                return { isInjection: true, confidence: Math.round(topPrediction.score * 100) };
+            }
+        }
+        return { isInjection: false, confidence: 0 };
+    } catch (error) {
+        console.error(`Neural pipeline processing issue: ${error.message}`);
+        return { isInjection: false, confidence: 0, error: true };
+    }
+}
         );
 
         // The model returns structure like: [[{ label: "INJECTION", score: 0.99 }, { label: "SAFE", score: 0.01 }]]
