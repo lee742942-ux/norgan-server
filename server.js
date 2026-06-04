@@ -56,35 +56,32 @@ async function queryNeuralClassifier(text) {
             modelUrl,
             { 
                 inputs: text,
-                options: { wait_for_model: true }
+                options: { 
+                    wait_for_model: true, // Forces Hugging Face to hold the request open while waking up the model
+                    use_cache: false 
+                }
             },
             { 
                 headers: { Authorization: `Bearer ${HF_TOKEN.trim()}` }, 
-                timeout: 30000 
+                timeout: 60000 // Bump timeout to 60 seconds to fully clear serverless model wakeups
             }
         );
 
-        // 📊 Print out the exact object structure to your Render console logs
         console.log("📊 API RAW PAYLOAD:", JSON.stringify(response.data));
 
-        // Unpack the nested response array safely
         if (response.data && Array.isArray(response.data) && Array.isArray(response.data[0])) {
             const predictions = response.data[0];
 
-            // Find the item that explicitly represents the SAFE baseline
             const safePrediction = predictions.find(p => {
                 const labelStr = String(p.label).toUpperCase();
                 return labelStr === 'SAFE' || labelStr === 'LABEL_0';
             });
 
-            // Find the item that explicitly represents the ATTACK payload
             const attackPrediction = predictions.find(p => {
                 const labelStr = String(p.label).toUpperCase();
                 return labelStr === 'INJECTION' || labelStr === 'LABEL_1' || labelStr === 'PROMPT_INJECTION';
             });
 
-            // CRITICAL INTELLIGENCE RULE:
-            // If the attack score is higher than 0.50, OR if the safe prediction drops low, slam it shut.
             if (attackPrediction && attackPrediction.score > 0.50) {
                 console.log(`🚨 ATTACK DETECTED BY NEURAL LAYER: Score ${attackPrediction.score}`);
                 return { isInjection: true, confidence: Math.round(attackPrediction.score * 100) };
@@ -99,9 +96,14 @@ async function queryNeuralClassifier(text) {
         return { isInjection: false, confidence: 0 };
     } catch (error) {
         console.error(`❌ Neural Engine Exception Trace: ${error.message}`);
-        // If the API drops completely, fail safe (let pass) or fail secure (block)?
-        // For testing, let's keep it false so it doesn't lock your interface up.
-        return { isInjection: false, confidence: 0 };
+        
+        // HARDEN LOOPHOLE: If the API times out or throws an error, return true to explicitly flag it on the frontend log
+        return { 
+            isInjection: true, 
+            confidence: 100, 
+            error: true,
+            reason: `GATEWAY_WARNING: NEURAL_API_TIMEOUT_OR_AUTH_FAULT (${error.message})` 
+        };
     }
 }
 app.post('/api/v1/validate', async (req, res) => {
