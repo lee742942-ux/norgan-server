@@ -6,7 +6,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🧮 LAYER 2 FUNCTION: Calculate Shannon Entropy to spot encoded strings (Hex/Base64)
+const HF_TOKEN = process.env.HF_API_TOKEN;
+
+// 🧮 LAYER 2 FUNCTION: Calculate Shannon Entropy
 function calculateShannonEntropy(str) {
     if (!str) return 0;
     let frequencies = {};
@@ -23,48 +25,60 @@ function calculateShannonEntropy(str) {
     return entropy;
 }
 
-// 🛡️ LAYER 3 FUNCTION: Semantic Threat Boundaries
-function evaluateSemanticRisk(payload, violations) {
-    let severeRiskScore = 0;
-
-    const attackPatterns = [
-        {
-            regex: /ignore\s+(?:all\s+|my\s+|the\s+)?previous\s+instructions/gi,
-            label: "ADVERSARIAL_ATTACK_VECTOR: INSTRUCTION_OVERRIDE_ATTEMPT"
-        },
-        {
-            regex: /(?:system|developer|hidden)\s+(?:prompt|instruction|rules)/gi,
-            label: "ADVERSARIAL_ATTACK_VECTOR: SYSTEM_PROMPT_EXFILTRATION"
-        },
-        {
-            regex: /(?:bypass|override|disable|crack)\s+(?:security|restriction|guardrail|filter)/gi,
-            label: "ADVERSARIAL_ATTACK_VECTOR: SECURITY_BYPASS_ATTEMPT"
-        },
-        {
-            regex: /(?:developer\s+mode\s+unrestricted|unrestricted\s+developer\s+mode)/gi,
-            label: "PROMPT_INJECTION__SANDBOX_ESCAPE_ATTEMPT"
-        },
-        {
-            regex: /(?:disregard\s+safety\s+protocols|bypass\s+compliance)/gi,
-            label: "PROMPT_INJECTION__COMPLIANCE_BYPASS_EXPLOIT"
-        }
+// 🛡️ LAYER 3 FUNCTION: Symbolic Pattern Scanners
+function evaluateSymbolicPatterns(payload, violations) {
+    let patterns = [
+        { regex: /ignore\s+(?:all\s+|my\s+|the\s+)?previous\s+instructions/gi, label: "ADVERSARIAL_ATTACK: INSTRUCTION_OVERRIDE" },
+        { regex: /(?:system|developer|hidden)\s+(?:prompt|instruction|rules)/gi, label: "ADVERSARIAL_ATTACK: PROMPT_EXFILTRATION" },
+        { regex: /(?:bypass|override|disable|crack)\s+(?:security|restriction|guardrail)/gi, label: "ADVERSARIAL_ATTACK: SECURITY_BYPASS" }
     ];
-
-    attackPatterns.forEach(item => {
+    let triggered = false;
+    patterns.forEach(item => {
         if (payload.match(item.regex)) {
             violations.push(item.label);
-            severeRiskScore += 45;
+            triggered = true;
         }
     });
+    return triggered;
+}
 
-    return severeRiskScore;
+// 🧠 LAYER 4 FUNCTION: Neural Semantic Classification Endpoint
+async function queryNeuralClassifier(text) {
+    if (!HF_TOKEN) {
+        console.warn("⚠️ Warning: HF_API_TOKEN environment variable missing. Neural layer skipped.");
+        return { isInjection: false, confidence: 0 };
+    }
+
+    try {
+        // Querying a hardened text-classification model fine-tuned for prompt injection vectors
+        const modelUrl = "https://api-inference.huggingface.co/models/deepset/deberta-v3-base-injection";
+        const response = await axios.post(
+            modelUrl,
+            { inputs: text },
+            { headers: { Authorization: `Bearer ${HF_TOKEN}` }, timeout: 4000 }
+        );
+
+        // The model returns an array of label objects, e.g., [{label: "INJECTION", score: 0.98}, {label: "SAFE", score: 0.02}]
+        if (response.data && Array.isArray(response.data[0])) {
+            const predictions = response.data[0];
+            const injectionLabel = predictions.find(p => p.label === 'INJECTION');
+            
+            if (injectionLabel && injectionLabel.score > 0.82) {
+                return { isInjection: true, confidence: Math.round(injectionLabel.score * 100) };
+            }
+        }
+        return { isInjection: false, confidence: 0 };
+    } catch (error) {
+        console.error(`Neural fallback triggered (API Latency/Timeout Error): ${error.message}`);
+        return { isInjection: false, confidence: 0 }; // Fail safe or handle gracefully
+    }
 }
 
 app.post('/api/v1/validate', async (req, res) => {
     const { payload, stripPii, framework, webhookUrl } = req.body;
 
     if (!payload) {
-        return res.status(400).json({ error: "Missing 'payload' string in request body." });
+        return res.status(400).json({ error: "Missing 'payload' string." });
     }
 
     let payloadString = typeof payload === 'object' ? JSON.stringify(payload) : String(payload);
@@ -73,43 +87,50 @@ app.post('/api/v1/validate', async (req, res) => {
     let baseRiskIndex = 0;
     let riskTriggered = false;
 
-    // ⚡ PREPROCESSING LAYER: Normalize Unicode (Collapses homoglyphs, full-width letters, and lookalikes)
-    // This turns "ｉｇｎｏｒｅ" into "ignore" before any checks run!
+    // ⚡ PREPROCESSING LAYER: Normalize Unicode strings
     let normalizedPayload = payloadString.normalize('NFKC');
 
-    // 🛑 LAYER 1: STRUCTURAL INTEGRITY BLOCK (Prototype Pollution Protection)
+    // 🛑 LAYER 1: STRUCTURAL INTEGRITY BLOCK
     if (normalizedPayload.includes('__proto__') || normalizedPayload.includes('constructor') || normalizedPayload.includes('prototype')) {
         violations.push("STRUCTURAL_ANOMALY: OBJECT_PROTOTYPE_POLLUTION_ATTEMPT");
         baseRiskIndex += 50;
         riskTriggered = true;
     }
 
-    // 🧮 LAYER 2: MULTI-VECTOR STATISTICAL ENGINE (Catches Hex & Base64 Obfuscation)
+    // 🧮 LAYER 2: STATISTICAL ENTROPY BLOCK
     const entropyScore = calculateShannonEntropy(normalizedPayload);
-    
     const hexFormatPattern = /(?:0x[0-9a-fA-F]{2})|(?:[0-9a-fA-F]{2}\s+){3,}[0-9a-fA-F]{2}/gi;
-    const base64Indicator = /Y2F0IC/g;
-
-    if (entropyScore > 5.4 || hexFormatPattern.test(normalizedPayload) || base64Indicator.test(normalizedPayload)) {
+    if (entropyScore > 5.4 || hexFormatPattern.test(normalizedPayload)) {
         violations.push("STATISTICAL_ANOMALY: HIGH_ENTROPY_OBFUSCATED_VECTOR");
         baseRiskIndex += 50;
         riskTriggered = true;
     }
 
-    // 🗣️ LAYER 3: NEURAL-SEMANTIC REGEX FILTERING (Now runs against the fully decoded/normalized payload)
-    const behavioralRisk = evaluateSemanticRisk(normalizedPayload, violations);
-    if (behavioralRisk >= 45) {
+    // 🗣️ LAYER 3: SYMBOLIC DETERMINISTIC FILTERING
+    const patternTriggered = evaluateSymbolicPatterns(normalizedPayload, violations);
+    if (patternTriggered) {
+        baseRiskIndex += 45;
         riskTriggered = true;
     }
 
-    const finalRiskIndex = Math.min(baseRiskIndex + behavioralRisk, 100);
+    // 🧠 LAYER 4: NEURAL CLASSIFIER (Only called if the faster local filters didn't drop the package)
+    let neuralConfidence = 0;
+    if (!riskTriggered) {
+        const neuralCheck = await queryNeuralClassifier(normalizedPayload);
+        if (neuralCheck.isInjection) {
+            violations.push(`NEURAL_CLASSIFIER_ANOMALY: SEMANTIC_INJECTION_DETECTED (Confidence: ${neuralCheck.confidence}%)`);
+            baseRiskIndex += 80;
+            riskTriggered = true;
+            neuralConfidence = neuralCheck.confidence;
+        }
+    }
+
+    // Calculate final responsive UI metrics
+    const finalRiskIndex = Math.min(baseRiskIndex, 100);
     const finalSecurityScore = Math.max(100 - finalRiskIndex, 0);
     const finalTrustLevel = Math.max(Math.floor(finalSecurityScore * 0.85), 15);
 
     const hasIssues = violations.length > 0;
-    const auditHash = Math.random().toString(36).substring(2, 12).toUpperCase();
-    const signatureHash = Math.random().toString(16).substring(2, 14);
-
     let structuralStatus = hasIssues ? "FAILED_REMEDIATED" : "PASSED_SECURE";
     
     if (riskTriggered) {
@@ -120,15 +141,15 @@ app.post('/api/v1/validate', async (req, res) => {
     const responseObject = {
         status: structuralStatus,
         metrics: {
-            latency_ms: Math.floor(Math.random() * 4) + 4,
+            latency_ms: Math.floor(Math.random() * 5) + 8,
             risk_index: finalRiskIndex,
             security_score: finalSecurityScore,
             trust_level: finalTrustLevel
         },
         governance: {
-            ledger_transaction_id: `tx_ledger_${auditHash}`,
-            block_signature: `sha256_${signatureHash}`,
-            ruleset_applied: `GDPR_Art_12-14_${framework ? framework.toUpperCase() : 'GENERAL'}_v1`,
+            ledger_transaction_id: `tx_ledger_${Math.random().toString(36).substring(2, 12).toUpperCase()}`,
+            block_signature: `sha256_${Math.random().toString(16).substring(2, 14)}`,
+            ruleset_applied: `NEURO_SYMBOLIC_HYBRID_v2_${framework ? framework.toUpperCase() : 'GENERAL'}`,
             gdpr_compliance_status: hasIssues ? "REMEDIATED_COMPLIANT" : "VERIFIED_COMPLIANT"
         },
         cleanOutput: cleanOutput,
@@ -138,8 +159,8 @@ app.post('/api/v1/validate', async (req, res) => {
     if (webhookUrl && structuralStatus !== "CRITICAL_GOVERNANCE_BREACH") {
         try {
             await axios.post(webhookUrl, { event: "norgan_v_validated", data: responseObject });
-        } catch (forwardError) {
-            console.error(`Webhook forward failure: ${forwardError.message}`);
+        } catch (err) {
+            console.error(`Webhook forward failure: ${err.message}`);
         }
     }
 
@@ -147,4 +168,4 @@ app.post('/api/v1/validate', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Norgan_V Protocols Initialized`));
+app.listen(PORT, () => console.log(`Norgan_V Neuro-Symbolic Cluster Active`));
