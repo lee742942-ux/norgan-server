@@ -64,10 +64,9 @@ async function queryNeuralClassifier(text) {
             }
         );
 
-        // Debug logging to keep track of the shape
         console.log("📊 API RAW PAYLOAD:", JSON.stringify(response.data));
 
-        // Use a flat string search instead of nested array handlers to prevent runtime compiler crashes
+        // Flat string search to completely prevent runtime compilation errors
         const stringifiedResponse = JSON.stringify(response.data).toUpperCase();
 
         if (stringifiedResponse.includes('"LABEL_1"') || stringifiedResponse.includes('"INJECTION"')) {
@@ -78,65 +77,12 @@ async function queryNeuralClassifier(text) {
         return { isInjection: false, confidence: 0 };
     } catch (error) {
         console.error(`❌ Neural Engine Exception Trace: ${error.message}`);
-        // If the token is failing or loading, drop back to safe processing mode
         return { isInjection: false, confidence: 0 };
-    }
-}
-    );
-
-        // 🔍 ENGINE DIAGNOSTIC LOG
-        console.log("📊 API RAW PAYLOAD:", JSON.stringify(response.data));
-
-        if (response.data && Array.isArray(response.data[0])) {
-            const predictions = response.data[0];
-            
-            // Loop through all return elements to find an explicit malicious label match
-            for (let prediction of predictions) {
-                const currentLabel = String(prediction.label).toUpperCase();
-                
-                // Catch every possible deployment configuration variant for an attack flag
-                if (currentLabel === 'INJECTION' || currentLabel === 'LABEL_1' || currentLabel === 'PROMPT_INJECTION') {
-                    console.log(`🚨 TARGET MATCHED: ${currentLabel} with confidence ${prediction.score}`);
-                    
-                    if (prediction.score > 0.50) { // Set to a sharp 50% argmax threshold for enterprise blocking
-                        return { isInjection: true, confidence: Math.round(prediction.score * 100) };
-                    }
-                }
-            }
-        }
-        return { isInjection: false, confidence: 0 };
-    } catch (error) {
-        // 🚨 CRITICAL VISIBILITY: If the API breaks or times out, flip this to TRUE to see the error message!
-        console.error(`❌ Neural Engine Exception Trace: ${error.message}`);
-        
-        // Temporarily set to TRUE to ensure that if the API token fails, it blocks everything rather than passing everything.
-        return { isInjection: true, confidence: 100, error: true };
-    }
-}
-        );
-
-        if (response.data && Array.isArray(response.data[0])) {
-            const predictions = response.data[0];
-            
-            const injectionLabel = predictions.find(p => 
-                p.label === 'INJECTION' || 
-                p.label === 'LABEL_1' || 
-                p.label === 'injection'
-            );
-            
-            if (injectionLabel && injectionLabel.score > 0.85) {
-                return { isInjection: true, confidence: Math.round(injectionLabel.score * 100) };
-            }
-        }
-        return { isInjection: false, confidence: 0 };
-    } catch (error) {
-        console.error(`Neural pipeline network/auth issue: ${error.message}`);
-        return { isInjection: false, confidence: 0, error: true };
     }
 }
 
 app.post('/api/v1/validate', async (req, res) => {
-    const { payload, stripPii, framework, webhookUrl } = req.body;
+    const { payload, framework, webhookUrl } = req.body;
 
     if (!payload) {
         return res.status(400).json({ error: "Missing 'payload' string." });
@@ -178,7 +124,7 @@ app.post('/api/v1/validate', async (req, res) => {
     if (!riskTriggered) {
         const neuralCheck = await queryNeuralClassifier(normalizedPayload);
         if (neuralCheck.isInjection) {
-            violations.push(`NEURAL_CLASSIFIER_ANOMALY: SEMANTIC_INJECTION_DETECTED (Confidence: ${neuralCheck.confidence}%)`);
+            violations.push(`NEURAL_CLASSIFIER_ANOMALY: SEMANTIC_INJECTION_DETECTED`);
             baseRiskIndex += 85;
             riskTriggered = true;
         }
